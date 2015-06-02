@@ -22,6 +22,8 @@ myClient = riak.RiakClient()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache']
 
+keys = {}
+
 
 # used with the -All option
 # returns list of all buckets in the system using accountlist on mongodb
@@ -43,7 +45,7 @@ def getAccountsBuckets():
 
 # writes data and indices from bucket into target file
 def writeBucket(bucket, target):
-	keys = getKeys(bucket)
+	keys = keys[bucket]
 	for key in keys: 
 	#for key in myClient.get_keys(bucket): #SLOW
 		target.write(json.dumps(bucket.get(key).data))
@@ -60,10 +62,13 @@ def getKeys(bucket):
 	else:
 		start = time.time()
 		#myClient.get_keys(bucket)
-		bucket.get_index('$key','0','Z')
-		end = time.time()
-		print "Getting index time is " + str(end - start)	
-		return bucket.get_index('$key','0','Z')	#return result could be HUGE. stream it with multiple loops perhaps. doesn't work with my bucket test
+		#bucket.get_index('$key','0','Z')
+		#end = time.time()
+		#print "Getting index time is " + str(end - start)
+		myBucket = myClient.bucket(bucket)
+		keyList = myBucket.get_index('$key', '0', 'Z')
+		keys[bucket]=keyList
+		return keyList	#return result could be HUGE. stream it with multiple loops perhaps. doesn't work with my bucket test
 
 # used with the -printkeys option
 # prints all of the keys in a bucket (for debugging purposes)
@@ -90,6 +95,17 @@ def bucketProtocol():
 def multipleBucket(bucketList):
 	print "all protocol"
 	filename = "riak-backup-" + date + ".json"
+
+	print keys
+	start = time.time()
+	for bucket in bucketList:
+		thr = threading.Thread(name=bucket, target=getKeys, args=(bucket,))
+		thr.start()
+	thr.join()
+	end = time.time()
+	print keys
+	print "Time to do keygen was " + str(end-start)
+
 
 	with open(filename, 'w') as target:
 		start = time.time()
