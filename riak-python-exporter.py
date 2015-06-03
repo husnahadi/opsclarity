@@ -19,9 +19,9 @@ parser.add_argument("-t", "--time", type=int, help="restricts backup to certain 
 parser.add_argument("-r", "--restore", help="changes setting to restore to a node instead")
 args = parser.parse_args()
 myClient = riak.RiakClient()
+#print myClient.get_buckets()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache']
-
 
 # used with the -All option
 # returns list of all buckets in the system using accountlist on mongodb
@@ -39,19 +39,33 @@ def getAccountsBuckets():
 		for types in typeList:
 			bucketList.append(env + ".ps." + types + "." + str(account))
 	#return bucketList
-	return ["dev.ps.TopoVersions.541a2ac73730e63fe202edcb", 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699']
+	return ['dev.ps.TopoVersions.541a2ac73730e63fe202edcb', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699','unittest.ps.TimelineEvents.5565fff8d4c691a87d7df1f6', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'dev.ps.TopoVersions.53e11d3283a26e8ceea1a79d', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'dev.ps.TopoVersions.532b446da4fd1e11bf89a35a', 'dev.ps.TopoVersions.52df1648dc797880d43ebfa5', 'dev.ps.TopoVersions.541a2ac73730e63fe202edcb']
 
 # writes data and indices from bucket into target file
 def writeBucket(bucket, target):
 	keys = getKeys(bucket)
-	for key in keys: 
-	#for key in myClient.get_keys(bucket): #SLOW
+	firstKey = True
+	for key in keys: #one for each key
+		if not firstKey:
+			target.write(", ")
+		else:
+			firstKey = False
+		target.write("[")
 		target.write(json.dumps(bucket.get(key).data))
-		target.write('{ "indexes": [')
+		target.write(' ,{ "indexes": [')
+		
+		firstIdx = True
 		for idx,val in bucket.get(key).indexes:
+			if not firstIdx:
+				target.write(", ")
+			else:
+				firstIdx = False
 			target.write(json.dumps({idx:val}))
-		target.write("]}\n")
+		target.write("]} ]")
 
+# writes data and indices from bucket into a new node
+def writeBucketNode(bucket, client):
+	print "writing bucket to node"
 
 # depending on time option is set, either returns all keys or just keys that fit a time query
 def getKeys(bucket):
@@ -71,20 +85,37 @@ def printKeys(bucket):
 	for keys in bucket.get_index('$key','0','Z'):
 		print keys
 
-	# for key in myClient.get_keys(bucket):
+	# for key in myClient.get_keys(bucket): #slower
 	# 	print key
 
-	# for keys in bucket.stream_index('$key',0,'zzz', return_terms=True):
+	# for keys in bucket.stream_index('$key',0,'zzz', return_terms=True): #not actually faster
 	# 	print keys	
 
 # -b protocol to backup from a single bucket into a new file
 def bucketProtocol():
 	print "bucket protocol"
 	bucketname = args.bucketname
-	filename = bucketname + date + ".json"
+	filename = bucketname + "-" + date + ".json"
 	with open(filename, 'w') as target:
 		myBucket = myClient.bucket(bucketname)
 		writeBucket(myBucket, target)
+
+# -r protocol to restore from a file into a node(s)
+def restoreProtcol():
+	print "restore protocol"
+	with open(args.restore, 'r') as backup:
+		for line in backup:
+			print "\n \n NEW LINE"
+			bucketDict = json.loads(line)
+			bucketDict['dev.ps.TopoVersions.541a2ac73730e63fe202edcb']
+			print "# of keys is: " + str(len(bucketDict['dev.ps.TopoVersions.541a2ac73730e63fe202edcb']))
+
+			# TODO:
+			# set up a connection w/ different node (for now put in same node but prepend with different thing)
+			# create new bucket with same bucket properties
+			# for key in bucketDict:
+			#	write key,data pair
+			# 	write indices
 
 # protocol to backup from multiple buckets into a new file
 def multipleBucket(bucketList):
@@ -126,10 +157,10 @@ elif args.account:
 elif args.print_keys:
 	# for key in get_bucket_keys(args.print_keys):
 	#     print key
-	
 	myBucket = myClient.bucket(args.print_keys)
 	printKeys(myBucket)
-
+elif args.restore:
+	restoreProtcol()
 
 
 
