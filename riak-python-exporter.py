@@ -19,7 +19,7 @@ parser.add_argument("-p", "--print_keys", help="prints all of the keys for a buc
 parser.add_argument("-t", "--time", type=int, help="restricts backup to certain range")
 parser.add_argument("-r", "--restore", help="restore to a node from flat file")
 parser.add_argument("-R", "--Restore", help="restore to a node from node")
-parser.add_argument("-s", "--SystemAll", help="does a thorough backup of all system buckets")
+parser.add_argument("-s", "--SystemAll", action='store_true', help="does a thorough backup of all system buckets")
 args = parser.parse_args()
 
 keyCount = 0
@@ -66,15 +66,15 @@ def writeBucket(bucket, target):
 	# start = time.time()
 	# objs = bucket.multiget(keys)
 
-	# count = 0
-	# for obj in objs:
-	# 	count = count + 1
-	# 	keyCount = keyCount + 1
-	# 	#print "\n\nobj in loop is"
-	# 	if type(obj) is riak.riak_object.RiakObject:
-	# 		obj.indexes
-	# end = time.time()
-	# print "Multiget function time for " + str(count) + " keys is " + str(end - start)
+	count = 0
+	for obj in objs:
+		count = count + 1
+		keyCount = keyCount + 1
+		#print "\n\nobj in loop is"
+		if type(obj) is riak.riak_object.RiakObject:
+			obj.indexes
+	end = time.time()
+	print "Multiget function time for " + str(count) + " keys is " + str(end - start)
 
 	firstKey = True
 	start = time.time()
@@ -92,7 +92,7 @@ def writeBucket(bucket, target):
 		else:
 			firstKey = False
 		target.write("[")
-		target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
+		#target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
 		target.write(' ,{ "indexes": [')
 		
 		firstIdx = True
@@ -102,7 +102,7 @@ def writeBucket(bucket, target):
 					target.write(", ")
 				else:
 					firstIdx = False
-				target.write(json.dumps({idx:val}))
+				#target.write(json.dumps({idx:val}))
 		target.write("]} ]")
 		e3 = time.time()
 		totalWritetoDisk = totalWritetoDisk + (e3-s3)
@@ -261,7 +261,7 @@ elif args.restore:
 	restoreFromFileProtcol()
 elif args.Restore:
 	restoreFromNodeProtocol()
-elif args.StagingAll:
+elif args.SystemAll:
 	stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 	print "Getting bucketList"
 	bucketList = stagingClient.get_buckets()
