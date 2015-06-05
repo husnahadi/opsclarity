@@ -23,7 +23,7 @@ parser.add_argument("-s", "--SystemAll", action='store_true', help="does a thoro
 args = parser.parse_args()
 
 myClient = riak.RiakClient()
-#print myClient.get_buckets()
+print myClient.get_buckets()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache'] #RESOURCEVERSION
 #keyCount = 0
@@ -122,12 +122,12 @@ def writeBucketNode(bucket, client):
 
 	"""
 	print "writing bucket to node"
-	newBucket = client.bucket("XOXO" + bucket.name)
+	newBucket = client.bucket("NODE" + bucket.name)
 	keys = getKeys(bucket)
 	for key in keys:
 		dataObj = bucket.get(key)
 		data = json.dumps(bucket.get(key).data)
-		newEntry = newBucket.new(key,data=data)
+		newEntry = newBucket.new(key,data=dataObj.data)
 		for index in dataObj.indexes:
 			newEntry.add_index(index[0],index[1])
 		newEntry.store()
@@ -199,8 +199,8 @@ def restoreFromFileProtocol():
 			bucketDict = json.loads(line)
 			bucketname = bucketDict.keys()[0]
 			#newBucket = myClient.bucket("TEST" + bucketname)
-			newBucket = myClient.bucket("XOXO" + bucketname)			
-			print "\n# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
+			newBucket = myClient.bucket(bucketname)			
+			#print "\n# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
 			for data,indexes in bucketDict[bucketname]:
 				#print data
 				#print indexes
@@ -208,8 +208,9 @@ def restoreFromFileProtocol():
 				dataJSON = json.dumps(data)
 				print dataJSON
 				newEntry = newBucket.new(key,data=data)
-				result = newBucket.get(key)
-				print result.data
+				newEntry.store()
+				#result = newBucket.get(key)
+				#print result.data
 				print "printing indexes"
 				for index in indexes[indexes.keys()[0]]:
 					idx = index.keys()[0].encode('ascii','ignore')
