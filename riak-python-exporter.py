@@ -49,7 +49,8 @@ def getAccountsBuckets():
 			bucketname = env + ".ps." + types + "." + str(account)
 			bucket = myClient.bucket(bucketname)
 			bucketList.append(bucket)
-	return bucketList
+	#return bucketList
+	return myClient.get_buckets()
 	#return ['dev.ps.TopoVersions.541a2ac73730e63fe202edcb', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699','unittest.ps.TimelineEvents.5565fff8d4c691a87d7df1f6', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'dev.ps.TopoVersions.53e11d3283a26e8ceea1a79d', 'dev.ps.TopoVersions.532b446da4fd1e11bf89a35a', 'dev.ps.TopoVersions.52df1648dc797880d43ebfa5']
 
 def writeBucket(bucket, target):
@@ -197,7 +198,8 @@ def restoreFromFileProtocol():
 		for line in backup:
 			bucketDict = json.loads(line)
 			bucketname = bucketDict.keys()[0]
-			newBucket = myClient.bucket("TEST" + bucketname)
+			#newBucket = myClient.bucket("TEST" + bucketname)
+			newBucket = myClient.bucket("XOXO" + bucketname)			
 			print "\n# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
 			for data,indexes in bucketDict[bucketname]:
 				#print data
@@ -214,6 +216,7 @@ def restoreFromFileProtocol():
 					val = index[index.keys()[0]]
 					newEntry.add_index(idx,val)
 				newEntry.store()
+	myClient.get_buckets()
 
 def restoreFromNodeProtocol(sourceClient, destClient):
 	"""
