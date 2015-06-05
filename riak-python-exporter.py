@@ -22,13 +22,13 @@ parser.add_argument("-R", "--Restore", help="restore to a node from node")
 parser.add_argument("-s", "--SystemAll", action='store_true', help="does a thorough backup of all system buckets")
 args = parser.parse_args()
 
-keyCount = 0
+
 
 myClient = riak.RiakClient()
 #print myClient.get_buckets()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache'] #RESOURCEVERSION
-
+#keyCount = 0
 
 def getAccountsBuckets():
 	"""
@@ -66,20 +66,20 @@ def writeBucket(bucket, target):
 	# start = time.time()
 	# objs = bucket.multiget(keys)
 
-	count = 0
-	for obj in objs:
-		count = count + 1
-		keyCount = keyCount + 1
-		#print "\n\nobj in loop is"
-		if type(obj) is riak.riak_object.RiakObject:
-			obj.indexes
-	end = time.time()
-	print "Multiget function time for " + str(count) + " keys is " + str(end - start)
+	# count = 0
+	# for obj in objs:
+	# 	count = count + 1
+	# 	keyCount = keyCount + 1
+	# 	#print "\n\nobj in loop is"
+	# 	if type(obj) is riak.riak_object.RiakObject:
+	# 		obj.indexes
+	# end = time.time()
+	# print "Multiget function time for " + str(count) + " keys is " + str(end - start)
 
 	firstKey = True
 	start = time.time()
 	for key in keys: #one for each key
-		
+		#keyCount = keyCount + 1
 		s2 = time.time()
 		dataObj = bucket.get(key)
 		dataObjInd = dataObj.indexes
@@ -92,7 +92,7 @@ def writeBucket(bucket, target):
 		else:
 			firstKey = False
 		target.write("[")
-		#target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
+		target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
 		target.write(' ,{ "indexes": [')
 		
 		firstIdx = True
@@ -102,7 +102,7 @@ def writeBucket(bucket, target):
 					target.write(", ")
 				else:
 					firstIdx = False
-				#target.write(json.dumps({idx:val}))
+				target.write(json.dumps({idx:val}))
 		target.write("]} ]")
 		e3 = time.time()
 		totalWritetoDisk = totalWritetoDisk + (e3-s3)
@@ -172,11 +172,12 @@ def restoreFromFileProtcol():
 			newBucket = myClient.bucket("TEST" + bucketname)
 			print "\n# keys in " + bucketname + ": " + str(len(bucketDict[bucketname]))
 			for data,indexes in bucketDict[bucketname]:
-				print data
-				print indexes
+				#print type(data)
+				#print indexes
 				key = data["id"]
 				dataJSON = json.dumps(data)
-				newEntry = newBucket.new(key,data=dataJSON)
+				#print dataJSON
+				newEntry = newBucket.new(key,data=data)
 				#result = newBucket.get(key)
 				#print result.data
 				print "printing indexes"
@@ -194,6 +195,7 @@ def multipleBucket(bucketList):
 	"""
 	used with either the --All or --account option
 	protocol to backup data from multiple buckets into a new file
+	bucketList: list of Riak Bucket strings
 	"""
 	print "all protocol"
 	filename = "riak-backup-" + date + ".json"
@@ -215,24 +217,49 @@ def multipleBucket(bucketList):
 
 def multipleBucketRiak(bucketList):
 	"""
-	used with no arguments passed in
-	protocol to backup from multiple buckets into a new file
+	used with either the --All or --account option
+	protocol to backup data from multiple buckets into a new file
+	bucketList: list of Riak Bucket Objects
 	"""
-	print "all multiple bucket protocol"
-	filename = "huge-riak-backup-" + date + ".json"
-	print "backing up " + str(len(bucketList)) + " buckets"
+	print "all protocol"
+	filename = "system-riak-backup-" + date + ".json"
+
 	with open(filename, 'w') as target:
+		count = 1
 		start = time.time()
 		for bucket in bucketList: 
-			print "\n ++ " 
-			print bucket
-			#target.write('{"' + bucket + '": [')
+			print "\n ++ " + bucket.name + " #" + str(count)
+			count = count + 1
+			print bucket.name
+			target.write('{"' + bucket.name + '": [')
 			# print "\n" + bucket + " properties are: "
 			# print myBucket.get_properties()
 			writeBucket(bucket, target)
 			target.write("]}\n")
 		end = time.time()
 		print "Total elapsed time is :" + str(end - start)
+
+# def multipleBucketRiak(bucketList):
+# 	"""
+#	not sure why this is a duplicate
+# 	used with no arguments passed in
+# 	protocol to backup from multiple buckets into a new file
+# 	"""
+# 	print "all multiple bucket protocol"
+# 	filename = "huge-riak-backup-" + date + ".json"
+# 	print "backing up " + str(len(bucketList)) + " buckets"
+# 	with open(filename, 'w') as target:
+# 		start = time.time()
+# 		for bucket in bucketList: 
+# 			print "\n ++ " 
+# 			print bucket
+# 			#target.write('{"' + bucket + '": [')
+# 			# print "\n" + bucket + " properties are: "
+# 			# print myBucket.get_properties()
+# 			writeBucket(bucket, target)
+# 			target.write("]}\n")
+# 		end = time.time()
+# 		print "Total elapsed time is :" + str(end - start)
 
 def createAccountBucketList():
 	"""
@@ -262,13 +289,14 @@ elif args.restore:
 elif args.Restore:
 	restoreFromNodeProtocol()
 elif args.SystemAll:
-	stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
+	#stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 	print "Getting bucketList"
-	bucketList = stagingClient.get_buckets()
+	#bucketList = stagingClient.get_buckets()
+	bucketList = myClient.get_buckets()
 	print "Starting writing buckets"
 	multipleBucketRiak(bucketList)
 end = time.time()
-print "Total program time for " + str(keyCount) + " keys is " + str(end-start)
+#print "Total program time for " + str(keyCount) + " keys is " + str(end-start)
 
 
 # def get_bucket_keys(bucket):
