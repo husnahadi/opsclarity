@@ -9,6 +9,7 @@ except ImportError:
 	import simplejson as json
 from pymongo import MongoClient
 import threading
+import itertools
 
 start = time.time()
 parser = argparse.ArgumentParser()
@@ -23,8 +24,8 @@ parser.add_argument("-s", "--SystemAll", action='store_true', help="does a thoro
 parser.add_argument("-d", "--delete", action='store_true', help="deletes unnecessary buckets")
 args = parser.parse_args()
 
-myClient = riak.RiakClient()
-#myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
+#myClient = riak.RiakClient()
+myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 #print myClient.get_buckets()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache'] #RESOURCEVERSION
@@ -52,8 +53,7 @@ def getAccountsBuckets():
 			bucketList.append(bucket)
 	#return bucketList
 	return myClient.get_buckets()
-	#return ['dev.ps.TopoVersions.541a2ac73730e63fe202edcb', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699','unittest.ps.TimelineEvents.5565fff8d4c691a87d7df1f6', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'dev.ps.TopoVersions.53e11d3283a26e8ceea1a79d', 'dev.ps.TopoVersions.532b446da4fd1e11bf89a35a', 'dev.ps.TopoVersions.52df1648dc797880d43ebfa5']
-
+	
 def writeBucket(bucket, target):
 	"""
 	writes data and indices from one bucket into target file
@@ -61,17 +61,17 @@ def writeBucket(bucket, target):
 	@param target: File 
 	"""
 	global keyCount
-	totalReadfromNetwork = 0
-	totalWritetoDisk = 0
 
+	start1 = time.time()
 	start = time.time()
 	keys = getKeys(bucket)
 	end = time.time()
-	#print "Getting all keys time is " + str(end - start)
+	print "Getting all " + str(len(keys)) + " keys time is " + str(end - start)
 
-	# start = time.time()
-	# objs = bucket.multiget(keys)
-
+	start = time.time()
+	dataObjs = bucket.multiget(keys)
+	end = time.time()
+	print "Multiget function time is " + str(end - start)
 	# count = 0
 	# for obj in objs:
 	# 	count = count + 1
@@ -82,17 +82,20 @@ def writeBucket(bucket, target):
 	# end = time.time()
 	# print "Multiget function time for " + str(count) + " keys is " + str(end - start)
 
+	dataObj_time = 0
+	json_time = 0
+	writing_time = 0
+	index_time = 0
 	firstKey = True
-	start = time.time()
-	for key in keys: #one for each key
+	for dataObj in dataObjs: #one for each key
+		s1 = time.time()
 		keyCount = keyCount + 1
 		s2 = time.time()
-		dataObj = bucket.get(key)
 		dataObjInd = dataObj.indexes
 		# print dataObj
 		# print dataObjInd
 		e2 = time.time()
-		totalReadfromNetwork = totalReadfromNetwork + (e2 - s2)
+		index_time = index_time + (e2 - s2)
 
 		# writing the data
 		if not firstKey:
@@ -100,7 +103,21 @@ def writeBucket(bucket, target):
 		else:
 			firstKey = False
 		target.write("[")
-		target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
+
+		if bucket.name[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5"
+			s3 = time.time()
+			x = dataObj.data
+			e3 = time.time()
+			dataObj_time = dataObj_time + (e3 - s3)
+
+			s4 = time.time()
+			y = json.dumps(x)
+			e4 = time.time()
+			json_time = json_time + (e4 - s4)
+
+			target.write(y)
+
+		#target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
 		target.write(' ,{ "indexes": [')
 		
 		# writing the data's indices
@@ -113,9 +130,13 @@ def writeBucket(bucket, target):
 					firstIdx = False
 				target.write(json.dumps({idx:val}))
 		target.write("]} ]")
+		e1 = time.time()
 
 	end = time.time()
-	#print "Writing data time is " + str(end - start)
+	print "Accessing index time is " + str(index_time)
+	print "Creating data object time is " + str(dataObj_time)
+	print "Creating json time is " + str(json_time)
+	print "Backing up bucket total is " + str(end - start1)
 
 	#print "totalReadfromNetwork time is " + str(totalReadfromNetwork)	
 
@@ -127,7 +148,7 @@ def writeBucketNode(bucket, client):
 
 	"""
 	print "writing bucket to node"
-	newBucket = client.bucket("NODE" + bucket.name)
+	newBucket = client.bucket(bucket.name)
 	keys = getKeys(bucket)
 	for key in keys:
 		dataObj = bucket.get(key)
@@ -171,15 +192,18 @@ def backupMultipleBucket(bucketList):
 	"""
 	print "all protocol"
 	if not args.restorenode and not args.delete:
-		filename = "system-riak-backup-" + date + ".json"
+		filename = "staging-system-riak-backup-" + date + ".json"
 		count = 1
 		with open(filename, 'w') as target:
 			for bucket in bucketList: 
-				#print "\n ++ " + bucket.name + " #" + str(count)
+				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
-				target.write('{"' + bucket.name + '": [')
-				writeBucket(bucket, target)
-				target.write("]}\n")
+				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5" and bucket.name[:7] != "mohamed": #content type application/text error if removed
+				#if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
+				#if bucket.name[:52] == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a":
+					target.write('{"' + bucket.name + '": [')
+					writeBucket(bucket, target)
+					target.write("]}\n")
 	elif args.restorenode:
 		for bucket in bucketList:
 			writeBucketNode(bucket, myClient)
@@ -201,15 +225,11 @@ def restoreFromFileProtocol():
 		for line in backup:
 			bucketDict = json.loads(line)
 			bucketname = bucketDict.keys()[0]
-			#newBucket = myClient.bucket("TEST" + bucketname)
 			newBucket = myClient.bucket(bucketname)			
 			#print "\n# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
 			for data,indexes in bucketDict[bucketname]:
-				#print data
-				#print indexes
 				key = data["id"]
 				dataJSON = json.dumps(data)
-				#print dataJSON
 				newEntry = newBucket.new(key,data=data)
 				#result = newBucket.get(key)
 				#print result.data
@@ -227,7 +247,7 @@ def createAccountBucketList():
 	@return: list of strings representing the buckets associated with the account (string passed from args.account)
 	"""	
 	bucketList = []
-	env = "dev" #change this later
+	env = "dev" #change l8r
 	for types in typeList:
 		bucketList.append(env + ".ps." + types + "." + str(args.account))
 	return bucketList
