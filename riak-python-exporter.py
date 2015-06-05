@@ -35,6 +35,7 @@ def getAccountsBuckets():
 	used with the -All option
 	returns list of all buckets in the system using account names from local mongodb	
 	must have mongoDB client running in background before program starts
+	returns list of Riak Bucket Objects
 	"""
 	# access mongodb to get list of accounts
 	db = MongoClient().configdb_dev
@@ -47,9 +48,11 @@ def getAccountsBuckets():
 	#TODO: query environment to get environment as env
 	for account in accountList:
 		for types in typeList:
-			bucketList.append(env + ".ps." + types + "." + str(account))
-	#return bucketList
-	return ['dev.ps.TopoVersions.541a2ac73730e63fe202edcb', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699','unittest.ps.TimelineEvents.5565fff8d4c691a87d7df1f6', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'dev.ps.TopoVersions.53e11d3283a26e8ceea1a79d', 'dev.ps.TopoVersions.532b446da4fd1e11bf89a35a', 'dev.ps.TopoVersions.52df1648dc797880d43ebfa5']
+			bucketname = env + ".ps." + types + "." + str(account)
+			bucket = myClient.bucket(bucketname)
+			bucketList.append(bucket)
+	return bucketList
+	#return ['dev.ps.TopoVersions.541a2ac73730e63fe202edcb', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'unittest.ps.ResourceVersions.5403787a3c376271d86418ae', 'unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'dev.ps.TopoVersions.53fb72af6fa37bb52fcc9463', 'unittest.ps.ResourceVersions.539b47353004433b6f35a699','unittest.ps.TimelineEvents.5565fff8d4c691a87d7df1f6', 'dev.ps.TopoVersions.52df169fdc797880d43ebfa9', 'unittest.ps.TimelineEvents.539b47353004433b6f35a699', 'dev.ps.TopoVersions.53e11d3283a26e8ceea1a79d', 'dev.ps.TopoVersions.532b446da4fd1e11bf89a35a', 'dev.ps.TopoVersions.52df1648dc797880d43ebfa5']
 
 def writeBucket(bucket, target):
 	"""
@@ -86,7 +89,6 @@ def writeBucket(bucket, target):
 		e2 = time.time()
 		totalReadfromNetwork = totalReadfromNetwork + (e2 - s2)
 
-		s3 = time.time()
 		if not firstKey:
 			target.write(", ")
 		else:
@@ -104,13 +106,10 @@ def writeBucket(bucket, target):
 					firstIdx = False
 				target.write(json.dumps({idx:val}))
 		target.write("]} ]")
-		e3 = time.time()
-		totalWritetoDisk = totalWritetoDisk + (e3-s3)
 	end = time.time()
 	#print "Writing data time is " + str(end - start)
 
-	print "totalReadfromNetwork time is " + str(totalReadfromNetwork)
-	#print "totalWritetoDisk time is " + str(totalWritetoDisk)		
+	print "totalReadfromNetwork time is " + str(totalReadfromNetwork)	
 
 def writeBucketNode(bucket, client):
 	"""
@@ -172,7 +171,7 @@ def restoreFromFileProtcol():
 			newBucket = myClient.bucket("TEST" + bucketname)
 			print "\n# keys in " + bucketname + ": " + str(len(bucketDict[bucketname]))
 			for data,indexes in bucketDict[bucketname]:
-				#print type(data)
+				#print data
 				#print indexes
 				key = data["id"]
 				dataJSON = json.dumps(data)
@@ -186,34 +185,6 @@ def restoreFromFileProtcol():
 					val = index[index.keys()[0]]
 					newEntry.add_index(idx,val)
 				newEntry.store()
-
-
-			# TODO:
-			# set up a connection w/ different node
-
-def multipleBucket(bucketList):
-	"""
-	used with either the --All or --account option
-	protocol to backup data from multiple buckets into a new file
-	bucketList: list of Riak Bucket strings
-	"""
-	print "all protocol"
-	filename = "riak-backup-" + date + ".json"
-
-	with open(filename, 'w') as target:
-		count = 1
-		start = time.time()
-		for bucket in bucketList: 
-			print "\n ++ " + bucket + " #" + str(count)
-			count = count + 1
-			target.write('{"' + bucket + '": [')
-			myBucket = myClient.bucket(bucket)
-			# print "\n" + bucket + " properties are: "
-			# print myBucket.get_properties()
-			writeBucket(myBucket, target)
-			target.write("]}\n")
-		end = time.time()
-		print "Total elapsed time is :" + str(end - start)
 
 def multipleBucketRiak(bucketList):
 	"""
@@ -232,34 +203,10 @@ def multipleBucketRiak(bucketList):
 			count = count + 1
 			print bucket.name
 			target.write('{"' + bucket.name + '": [')
-			# print "\n" + bucket + " properties are: "
-			# print myBucket.get_properties()
 			writeBucket(bucket, target)
 			target.write("]}\n")
 		end = time.time()
 		print "Total elapsed time is :" + str(end - start)
-
-# def multipleBucketRiak(bucketList):
-# 	"""
-#	not sure why this is a duplicate
-# 	used with no arguments passed in
-# 	protocol to backup from multiple buckets into a new file
-# 	"""
-# 	print "all multiple bucket protocol"
-# 	filename = "huge-riak-backup-" + date + ".json"
-# 	print "backing up " + str(len(bucketList)) + " buckets"
-# 	with open(filename, 'w') as target:
-# 		start = time.time()
-# 		for bucket in bucketList: 
-# 			print "\n ++ " 
-# 			print bucket
-# 			#target.write('{"' + bucket + '": [')
-# 			# print "\n" + bucket + " properties are: "
-# 			# print myBucket.get_properties()
-# 			writeBucket(bucket, target)
-# 			target.write("]}\n")
-# 		end = time.time()
-# 		print "Total elapsed time is :" + str(end - start)
 
 def createAccountBucketList():
 	"""
@@ -276,10 +223,8 @@ def createAccountBucketList():
 if args.bucketname:
 	bucketProtocol()
 elif args.All:
-	print "Going here"
-	multipleBucket(getAccountsBuckets())
+	multipleBucketRiak(getAccountsBuckets())
 elif args.account:
-	print "Going here"
 	multipleBucket(createAccountBucketList())
 elif args.print_keys:
 	myBucket = myClient.bucket(args.print_keys)
@@ -289,8 +234,8 @@ elif args.restore:
 elif args.Restore:
 	restoreFromNodeProtocol()
 elif args.SystemAll:
-	#stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 	print "Getting bucketList"
+	#stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 	#bucketList = stagingClient.get_buckets()
 	bucketList = myClient.get_buckets()
 	print "Starting writing buckets"
