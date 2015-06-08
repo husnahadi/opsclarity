@@ -23,8 +23,11 @@ parser.add_argument("-n", "--restorenode", action='store_true', help="restore to
 parser.add_argument("-s", "--SystemAll", action='store_true', help="does a thorough backup of all system buckets")
 parser.add_argument("-d", "--delete", action='store_true', help="deletes unnecessary buckets")
 args = parser.parse_args()
-
-#myClient = riak.RiakClient()
+myClient = riak.RiakClient()
+start = time.time()
+myClient.get_buckets()
+end = time.time()
+print "Time to collect buckets is " + str (end - start)
 myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
 #print myClient.get_buckets()
 date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
@@ -52,7 +55,13 @@ def getAccountsBuckets():
 			bucket = myClient.bucket(bucketname)
 			bucketList.append(bucket)
 	#return bucketList
-	return myClient.get_buckets()
+	start = time.time()
+	print "Getting buckets"
+	buckets = myClient.get_buckets()
+	print "Buckets got"
+	end = time.time()
+	print "time to retrieve list of buckets is " + str(end - start)
+	return buckets
 	
 def writeBucket(bucket, target):
 	"""
@@ -61,6 +70,11 @@ def writeBucket(bucket, target):
 	@param target: File 
 	"""
 	global keyCount
+
+	filename = 'create_data_obj_time.txt'
+	filename2 = 'create_json_time.txt'
+	timeFile = open(filename,'w')
+	jsonTimeFile = open(filename2,'w')
 
 	start1 = time.time()
 	start = time.time()
@@ -72,22 +86,19 @@ def writeBucket(bucket, target):
 	dataObjs = bucket.multiget(keys)
 	end = time.time()
 	print "Multiget function time is " + str(end - start)
-	# count = 0
-	# for obj in objs:
-	# 	count = count + 1
-	# 	keyCount = keyCount + 1
-	# 	#print "\n\nobj in loop is"
+
 	# 	if type(obj) is riak.riak_object.RiakObject:
 	# 		obj.indexes
-	# end = time.time()
-	# print "Multiget function time for " + str(count) + " keys is " + str(end - start)
 
+	
 	dataObj_time = 0
-	json_time = 0
+	json_time = 0	
 	writing_time = 0
 	index_time = 0
 	firstKey = True
 	for dataObj in dataObjs: #one for each key
+		dataObj_time2 = 0
+		json_time2 = 0	
 		s1 = time.time()
 		keyCount = keyCount + 1
 		s2 = time.time()
@@ -104,21 +115,29 @@ def writeBucket(bucket, target):
 			firstKey = False
 		target.write("[")
 
-		if bucket.name[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5"
-			s3 = time.time()
-			x = dataObj.data
-			e3 = time.time()
-			dataObj_time = dataObj_time + (e3 - s3)
+		s3 = time.time()
+		x = dataObj.data
+		e3 = time.time()
+		dataObj_time = dataObj_time + (e3 - s3)
+		dataObj_time2 = e3 - s3
+		if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
+			if dataObj_time2 > .1:
+				timeFile.write(dataObj.key + ", " + str(dataObj_time2)+"\n")
 
-			s4 = time.time()
-			y = json.dumps(x)
-			e4 = time.time()
-			json_time = json_time + (e4 - s4)
+		s4 = time.time()
+		y = json.dumps(x)
+		e4 = time.time()
+		json_time = json_time + (e4 - s4)
+		json_time2 = e4 - s4
+		if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
+			if json_time2 > .1:
+				jsonTimeFile.write(dataObj.key + ", " + str(json_time2)+"\n")
 
-			target.write(y)
+		target.write(y)
+		target.write(' ,')
 
-		#target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
-		target.write(' ,{ "indexes": [')
+		target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
+		target.write('{ "indexes": [')
 		
 		# writing the data's indices
 		firstIdx = True
@@ -198,9 +217,9 @@ def backupMultipleBucket(bucketList):
 			for bucket in bucketList: 
 				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
-				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5" and bucket.name[:7] != "mohamed": #content type application/text error if removed
-				#if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
-				#if bucket.name[:52] == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a":
+				#if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed": #content type application/text error if removed
+				if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5": #69
+				#if bucket.name[:52] == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a": #70
 					target.write('{"' + bucket.name + '": [')
 					writeBucket(bucket, target)
 					target.write("]}\n")
