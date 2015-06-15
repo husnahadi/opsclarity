@@ -10,28 +10,43 @@ except ImportError:
 from pymongo import MongoClient
 import threading
 import itertools
+import sys
 
 start = time.time()
 parser = argparse.ArgumentParser()
 parser.add_argument("-A", "--All", action='store_true', help="backup the entire db")
 parser.add_argument("-a", "--account", type=int, help="backup a particular account")
 parser.add_argument("-b", "--bucketname", help="backup a particular bucket")
-parser.add_argument("-p", "--print_keys", help="prints all of the keys for a bucket")
 parser.add_argument("-t", "--time", type=int, help="restricts backup to certain range")
 parser.add_argument("-f", "--restorefile", help="restore to a node from flat file")
 parser.add_argument("-n", "--restorenode", action='store_true', help="restore to a node from node")
-parser.add_argument("-y", "--SystemAll", action='store_true', help="does a thorough backup of all system buckets")
 parser.add_argument("-d", "--delete", action='store_true', help="deletes unnecessary buckets")
 parser.add_argument("-s", "--server", help="which server to back it up from")
 args = parser.parse_args()
 myClient = []
+protocol = ""
+if args.restorenode or args.restorefile:
+	protocol = "http"
+else:
+	protocol = "pbc"
+print "Protocol type: " + protocol
+
 if args.server == "local":
-	myClient = riak.RiakClient(protocol="http")
+	myClient = riak.RiakClient(protocol=protocol)
 elif args.server == "staging":
-	myClient = myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com', protocol='http')
-#print "Time to collect buckets is " + str (end - start)
-#print myClient.get_buckets()
-date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
+	myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com', protocol=protocol)
+elif args.server == "prod":
+	myClient == riak.RiakClient(host='internal-prod-riak-840856407.us-west-1.elb.amazonaws.com', protocol = protocol)
+elif args.server == "nightly":
+	myClient == riak.RiakClient(host='nightly-platform.prod.opsclarity.com', protocol = protocol)
+elif not args.server:
+	print "Error: required server name (using -s option)"
+	sys.exit(0)
+else:
+	print "Error: incorrect server name"
+	sys.exit(0)
+localClient = riak.RiakClient(protocol="http")
+date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M')
 typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache'] #'ResourceVersion'
 keyCount = 0
 
@@ -72,12 +87,8 @@ def writeBucket(bucket, target):
 	"""
 	global keyCount
 
-	filename = 'create_data_obj_time.txt'
-	filename2 = 'create_json_time.txt'
-	timeFile = open(filename,'w')
-	jsonTimeFile = open(filename2,'w')
-
 	start1 = time.time()
+
 	start = time.time()
 	keys = getKeys(bucket)
 	end = time.time()
@@ -88,23 +99,15 @@ def writeBucket(bucket, target):
 	end = time.time()
 	print "Multiget function time is " + str(end - start)
 
-	# 	if type(obj) is riak.riak_object.RiakObject:
-	# 		obj.indexes
-
 	dataObj_time = 0
 	json_time = 0	
 	writing_time = 0
 	index_time = 0
 	firstKey = True
 	for dataObj in dataObjs: #one for each key
-		dataObj_time2 = 0
-		json_time2 = 0	
-		s1 = time.time()
 		keyCount = keyCount + 1
 		s2 = time.time()
 		dataObjInd = dataObj.indexes
-		# print dataObj
-		# print dataObjInd
 		e2 = time.time()
 		index_time = index_time + (e2 - s2)
 
@@ -116,31 +119,13 @@ def writeBucket(bucket, target):
 
 		s3 = time.time()
 		x = dataObj.encoded_data
-		#print x
-		#print json.dumps(x)
-		#print type(dataObj.data)
 		e3 = time.time()
 		dataObj_time = dataObj_time + (e3 - s3)
-		dataObj_time2 = e3 - s3
-		if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
-			if dataObj_time2 > .1:
-				timeFile.write(dataObj.key + ", " + str(dataObj_time2)+"\n")
 
-		s4 = time.time()
-		#y = json.dumps(x)
-		e4 = time.time()
-		json_time = json_time + (e4 - s4)
-		json_time2 = e4 - s4
-		if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
-			if json_time2 > .1:
-				jsonTimeFile.write(dataObj.key + ", " + str(json_time2)+"\n")
 		if x:
 			target.write("[")
 			target.write(x)
-			target.write(' ,')
-
-			#target.write(json.dumps(dataObj.data)) #(NO DECODER FOR TYPE APPLICATION/TEXT)
-			target.write('{ "indexes": [')
+			target.write(' , { "indexes": [')
 			
 			# writing the data's indices
 			firstIdx = True
@@ -152,7 +137,6 @@ def writeBucket(bucket, target):
 						firstIdx = False
 					target.write(json.dumps({idx:val}))
 			target.write("]} ]")
-		e1 = time.time()
 
 	end = time.time()
 	print "Accessing index time is " + str(index_time)
@@ -169,13 +153,14 @@ def writeBucketNode(bucket, client):
 	@param client: RiakClient to write new bucket to
 
 	"""
+	global keyCount
 	start0 = time.time()
 	newBucket = client.bucket(bucket.name)
 	start = time.time()
 	keys = getKeys(bucket)
 	end = time.time()
 	print "Getting keys time for " + str(len(keys)) + " keys is " + str(end - start)
-
+	keyCount = keyCount + len(keys)
 	start = time.time()
 	dataObjs = bucket.multiget(keys)
 	end = time.time()
@@ -188,10 +173,6 @@ def writeBucketNode(bucket, client):
 
 	for dataObj in dataObjs:
 		count = count + 1
-		#print str(dataObj.key) + " #" + str(count)
-		#print dataObj.encoded_data
-		#print type(dataObj.encoded_data)
-
 		start = time.time()
 		# if dataObj.key != "55687b61e4b0c65d2a8f46db" and dataObj.key != "55686646e4b0c65d2a8a0f91" and dataObj.key != "55688d71e4b0b144746b8642" and dataObj.key != "55689479e4b0b144746e9fd6": #encoding unicode issue
 		# 	newEntry = newBucket.new(dataObj.key, data=dataObj.encoded_data)
@@ -216,14 +197,6 @@ def writeBucketNode(bucket, client):
 			store_newEntry_time = store_newEntry_time + (end - start)
 
 	end = time.time()
-
-	# for key in keys:
-	# 	dataObj = bucket.get(key)
-	# 	data = json.dumps(dataObj.data)
-	# 	newEntry = newBucket.new(key,data=dataObj.data)
-	# 	for index in dataObj.indexes:
-	# 		newEntry.add_index(index[0],index[1])
-	# 	newEntry.store(return_body=False)
 
 	print "Creating index time is " + str(index_time)
 	print "Creating newEntry time is " + str(newEntry_time)
@@ -252,7 +225,9 @@ def backupSingleBucketProtocol():
 	if not args.restorenode:
 		filename = bucketname + "-" + date + ".json"
 		with open(filename, 'w') as target:
+			target.write('{"' + bucketname + '": [')
 			writeBucket(myBucket, target)
+			target.write("]}\n")
 	else:
 		writeBucketNode(myBucket, localClient)
 
@@ -264,21 +239,13 @@ def backupMultipleBucket(bucketList):
 	"""
 	print "all protocol"
 	if not args.restorenode and not args.delete:
-		filename = "bloop"
-		if args.server == "local":
-			filename = "local-system-riak-backup-" + date + ".json"
-		elif args.server == "staging":
-			filename = "staging-system-riak-backup-" + date + ".json"
+		filename = args.server + "-riak-backup-" + date + ".json"
 		count = 1
 		with open(filename, 'w') as target:
 			for bucket in bucketList: 
 				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
-				#if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed" and bucket.name[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5": #works all writes
 				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed": #content type application/text error if removed
-				#if bucket.name[:52] == "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5": #69
-				#if bucket.name[:52] == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a": #70
-				#if bucket.name[:52] == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a": #expected char buffer
 					target.write('{"' + bucket.name + '": [')
 					writeBucket(bucket, target)
 					target.write("]}\n")
@@ -292,59 +259,54 @@ def backupMultipleBucket(bucketList):
 	elif args.delete:
 		#print bucketList
 		for bucket in bucketList:
-			if bucket.name == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a":
-			#if bucket.name[:8] == "TESTTEST":
-				print "Bucket to delete: " + bucket.name
-				for key in getKeys(bucket):
-					bucket.delete(key)
+			print "Bucket to delete: " + bucket.name
+			keys = getKeys(bucket)
+			global keyCount 
+			keyCount = keyCount + len(keys)
+			for key in keys:
+				bucket.delete(key)
 
 def restoreFromFileProtocol():
 	"""
 	used with the --restore option
 	protocol to restore data from a JSON file (string passed from args.restore) into a node(s)
 	"""
+	global keyCount 
 	print "restore protocol"
 	with open(args.restorefile, 'r') as backup:
 		count = 1
-		#nobucket = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60]
-		nobucket = []
 		for line in backup:
-			#print line
 			count = count + 1
 			print "Bucket #" + str(count)
-			#if count > 80:
-			if count not in nobucket:
-				start = time.time()
-				bucketDict = json.loads(line)
-				end = time.time()
-				print "Loading json time is " + str(end-start)
-				bucketname = bucketDict.keys()[0]
+			start = time.time()
+			bucketDict = json.loads(line)
 
-				print "++ " + str(bucketname) + " #" + str(count)
-				if bucketname == "staging.ps.ResourceVersions.532b446da4fd1e11bf89a35a":
-				#if bucketname == "unittest.ps.ResourceVersionSnapshots.539b47353004433b6f35a699":
-				#if bucketname[:22] != "dev.ui.userPreferences" and bucketname[:26] != "staging.ui.userPreferences" and bucketname[:24] != "local.ui.userPreferences" and bucketname[:31] != "all.providence.accountsummaries" and bucketname[:18] != "dev.ps.AgentCaches" and bucketname[:21] != "ds.ui.userPreferences" and bucketname[:23] != "prod.ui.userPreferences" and bucketname != "staging.ps.AgentCaches." and bucketname != "all.providence.awsInfo" and bucketname != "graphs":
-				#if bucketname[:52] != "staging.ps.ResourceVersions.52df1648dc797880d43ebfa5":
-					newBucket = myClient.bucket(bucketname)			
-					print "# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
-					start = time.time()
-					for data,indexes in bucketDict[bucketname]:
-						#print line
-						#print data
-						key = data["id"]
-						#print "key id " + str(key)
-						dataJSON = json.dumps(data)
-						newEntry = newBucket.new(key,data=data)
-						#result = newBucket.get(key)
-						#print result.data
-						for index in indexes[indexes.keys()[0]]:
-							idx = index.keys()[0].encode('ascii','ignore')
-							val = index[index.keys()[0]]
-							newEntry.add_index(idx,val)
-						newEntry.store(return_body=False)
-					end = time.time()
-					print "Time to write all keys is " + str(end - start)
-				print "Bucket done\n"
+			end = time.time()
+			print "Loading json time is " + str(end-start)
+			bucketname = bucketDict.keys()[0]
+
+			print "++ " + str(bucketname) + " #" + str(count)
+			if bucketname[:22] != "dev.ui.userPreferences" and bucketname[:26] != "staging.ui.userPreferences" and bucketname[:24] != "local.ui.userPreferences" and bucketname[:31] != "all.providence.accountsummaries" and bucketname[:18] != "dev.ps.AgentCaches" and bucketname[:21] != "ds.ui.userPreferences" and bucketname[:23] != "prod.ui.userPreferences" and bucketname != "staging.ps.AgentCaches." and bucketname != "all.providence.awsInfo" and bucketname != "graphs" and bucketname != "staging.aws.CloudWatchMetrics":
+				newBucket = myClient.bucket(bucketname)			
+				print "# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
+				keyCount = keyCount + len(bucketDict[bucketname])
+				store_newEntry_time = 0
+				start = time.time()
+				for data,indexes in bucketDict[bucketname]:
+					key = data["id"]
+					newEntry = newBucket.new(key,data=data)
+					for index in indexes[indexes.keys()[0]]:
+						idx = index.keys()[0].encode('ascii','ignore')
+						val = index[index.keys()[0]]
+						newEntry.add_index(idx,val)
+					s2 = time.time()
+					newEntry.store(return_body=False)
+					e2 = time.time()
+					store_newEntry_time = store_newEntry_time + (e2-s2)
+				end = time.time()
+				print "Time to store keys is " + str(store_newEntry_time)
+				print "Time to write all keys is " + str(end - start)
+			print "Bucket done\n"
 
 def createAccountBucketList():
 	"""
@@ -357,21 +319,6 @@ def createAccountBucketList():
 		bucketList.append(env + ".ps." + types + "." + str(args.account))
 	return bucketList
 
-def printKeys(bucket):
-	"""
-	used with the -printkeys option
-	prints all of the keys in a bucket (for debugging purposes)
-	@param bucket: Riak Bucket Object
-	"""
-	for keys in bucket.get_index('$key','0','Z'):
-		print keys
-
-	# for key in myClient.get_keys(bucket): #slower
-	# 	print key
-
-	# for keys in bucket.stream_index('$key',0,'zzz', return_terms=True): #not actually faster
-	# 	print keys	
-
 #parses arguments to follow code execution
 if args.bucketname:
 	backupSingleBucketProtocol()
@@ -379,39 +326,7 @@ elif args.All:
 	backupMultipleBucket(getAccountsBuckets())
 elif args.account:
 	backupMultipleBucket(createAccountBucketList())
-elif args.print_keys:
-	myBucket = myClient.bucket(args.print_keys)
-	printKeys(myBucket)
 elif args.restorefile:
 	restoreFromFileProtocol()
-elif args.SystemAll:
-	print "Getting bucketList"
-	#stagingClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com')
-	#bucketList = stagingClient.get_buckets()
-	bucketList = myClient.get_buckets()
-	print "Starting writing buckets"
-	backupMultipleBucket(bucketList)
 end = time.time()
 print "Total program time for " + str(keyCount) + " keys is " + str(end-start)
-
-
-# def get_bucket_keys(bucket):
-# 	"""
-# 	function doesn't fully work, but supposed to return a generator of 
-# 	keys from a bucket	
-#     """
-#     for record_key in myClient.index(bucket, '$key', '0', 'Z').run():
-#         yield record_key
-# for key in get_bucket_keys(args.print_keys):
-# print key
-
-#this search works but sometimes groups keys out of order and groups keys together
-#in a way that doesn't make sense ... not sure why
-	# for keys in bucket.stream_index('$key',0,'zzz'):
-	# 	print keys
-	# BELOW IS THE NON KEY VERIONS OF THIS. BOTH DO IT WEIRD	
-	# stream = myClient.stream_keys(bucket)
-	# for key_list in stream:
-	#      print key_list
-	# stream.close()
-
