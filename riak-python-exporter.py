@@ -123,7 +123,7 @@ def writeBucket(bucket, target):
 		dataObj_time = dataObj_time + (e3 - s3)
 
 		if x:
-			target.write("[")
+			target.write('[{"key": "' + str(dataObj.key) + '"}, ')
 			target.write(x)
 			target.write(' , { "indexes": [')
 			
@@ -246,6 +246,7 @@ def backupMultipleBucket(bucketList):
 				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
 				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed": #content type application/text error if removed
+				#if True:
 					target.write('{"' + bucket.name + '": [')
 					writeBucket(bucket, target)
 					target.write("]}\n")
@@ -274,7 +275,7 @@ def restoreFromFileProtocol():
 	global keyCount 
 	print "restore protocol"
 	with open(args.restorefile, 'r') as backup:
-		count = 1
+		count = 0
 		for line in backup:
 			count = count + 1
 			print "Bucket #" + str(count)
@@ -286,26 +287,24 @@ def restoreFromFileProtocol():
 			bucketname = bucketDict.keys()[0]
 
 			print "++ " + str(bucketname) + " #" + str(count)
-			if bucketname[:22] != "dev.ui.userPreferences" and bucketname[:26] != "staging.ui.userPreferences" and bucketname[:24] != "local.ui.userPreferences" and bucketname[:31] != "all.providence.accountsummaries" and bucketname[:18] != "dev.ps.AgentCaches" and bucketname[:21] != "ds.ui.userPreferences" and bucketname[:23] != "prod.ui.userPreferences" and bucketname != "staging.ps.AgentCaches." and bucketname != "all.providence.awsInfo" and bucketname != "graphs" and bucketname != "staging.aws.CloudWatchMetrics":
-				newBucket = myClient.bucket(bucketname)			
-				print "# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
-				keyCount = keyCount + len(bucketDict[bucketname])
-				store_newEntry_time = 0
-				start = time.time()
-				for data,indexes in bucketDict[bucketname]:
-					key = data["id"]
-					newEntry = newBucket.new(key,data=data)
-					for index in indexes[indexes.keys()[0]]:
-						idx = index.keys()[0].encode('ascii','ignore')
-						val = index[index.keys()[0]]
-						newEntry.add_index(idx,val)
-					s2 = time.time()
-					newEntry.store(return_body=False)
-					e2 = time.time()
-					store_newEntry_time = store_newEntry_time + (e2-s2)
-				end = time.time()
-				print "Time to store keys is " + str(store_newEntry_time)
-				print "Time to write all keys is " + str(end - start)
+			newBucket = myClient.bucket(bucketname)			
+			print "# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
+			keyCount = keyCount + len(bucketDict[bucketname])
+			store_newEntry_time = 0
+			start = time.time()
+			for key, data,indexes in bucketDict[bucketname]:
+				newEntry = newBucket.new(key["key"],data=data)
+				for index in indexes[indexes.keys()[0]]:
+					idx = index.keys()[0].encode('ascii','ignore')
+					val = index[index.keys()[0]]
+					newEntry.add_index(idx,val)
+				s2 = time.time()
+				newEntry.store(return_body=False)
+				e2 = time.time()
+				store_newEntry_time = store_newEntry_time + (e2-s2)
+			end = time.time()
+			print "Time to store keys is " + str(store_newEntry_time)
+			print "Time to write all keys is " + str(end - start)
 			print "Bucket done\n"
 
 def createAccountBucketList():
