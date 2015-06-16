@@ -36,9 +36,10 @@ if args.server == "local":
 elif args.server == "staging":
 	myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com', protocol=protocol)
 elif args.server == "prod":
-	myClient == riak.RiakClient(host='internal-prod-riak-840856407.us-west-1.elb.amazonaws.com', protocol = protocol)
+	myClient = riak.RiakClient(host='internal-prod-riak-840856407.us-west-1.elb.amazonaws.com', protocol = protocol)
+	print "connecting"
 elif args.server == "nightly":
-	myClient == riak.RiakClient(host='nightly-platform.prod.opsclarity.com', protocol = protocol)
+	myClient = riak.RiakClient(host='nightly-platform.prod.opsclarity.com', protocol = protocol)
 elif not args.server:
 	print "Error: required server name (using -s option)"
 	sys.exit(0)
@@ -65,7 +66,7 @@ def getAccountsBuckets():
 	# 	accountList.append(d["_id"])
 
 	# bucketList = []
-	# env = "dev"
+	# env = args.server #unless its local -> then its dev
 	# for account in accountList:
 	# 	for types in typeList:
 	# 		bucketname = env + ".ps." + types + "." + str(account)
@@ -100,16 +101,10 @@ def writeBucket(bucket, target):
 	print "Multiget function time is " + str(end - start)
 
 	dataObj_time = 0
-	json_time = 0	
-	writing_time = 0
-	index_time = 0
 	firstKey = True
 	for dataObj in dataObjs: #one for each key
 		keyCount = keyCount + 1
-		s2 = time.time()
 		dataObjInd = dataObj.indexes
-		e2 = time.time()
-		index_time = index_time + (e2 - s2)
 
 		# writing the data
 		if not firstKey:
@@ -139,9 +134,7 @@ def writeBucket(bucket, target):
 			target.write("]} ]")
 
 	end = time.time()
-	print "Accessing index time is " + str(index_time)
 	print "Creating data object time is " + str(dataObj_time)
-	print "Creating json time is " + str(json_time)
 	print "Backing up bucket total is " + str(end - start1)
 
 	#print "totalReadfromNetwork time is " + str(totalReadfromNetwork)	
@@ -166,7 +159,6 @@ def writeBucketNode(bucket, client):
 	end = time.time()
 	print "Getting dataObjs time is " + str(end - start)
 
-	index_time = 0
 	newEntry_time = 0
 	store_newEntry_time = 0
 	count = 0
@@ -174,22 +166,16 @@ def writeBucketNode(bucket, client):
 	for dataObj in dataObjs:
 		count = count + 1
 		start = time.time()
-		# if dataObj.key != "55687b61e4b0c65d2a8f46db" and dataObj.key != "55686646e4b0c65d2a8a0f91" and dataObj.key != "55688d71e4b0b144746b8642" and dataObj.key != "55689479e4b0b144746e9fd6": #encoding unicode issue
-		# 	newEntry = newBucket.new(dataObj.key, data=dataObj.encoded_data)
-		# else:
-		# 	newEntry = newEntry = newBucket.new(dataObj.key, data=dataObj.data)
-		dDataObj = dataObj.data
+		dataObj = dataObj.data
 		if dDataObj:
-			newEntry = newBucket.new(dataObj.key, data=dDataObj)
+			newEntry = newBucket.new(dataObj.key, data=dataObj)
 			end = time.time()
 			newEntry_time = newEntry_time + (end - start)
 
-			start1 = time.time()
-			if dataObj.indexes:
-				for index in dataObj.indexes:
+			indexes = dataObj.indexes
+			if indexes:
+				for index in indexes:
 					newEntry.add_index(index[0],index[1])
-			start2 = time.time()
-			index_time = index_time + (end - start)
 
 			start = time.time()
 			newEntry.store(return_body=False)
@@ -198,7 +184,6 @@ def writeBucketNode(bucket, client):
 
 	end = time.time()
 
-	print "Creating index time is " + str(index_time)
 	print "Creating newEntry time is " + str(newEntry_time)
 	print "Storing newEntry time is " + str(store_newEntry_time)	
 	print "Restoring up bucket total is " + str(end - start0) + "\n"
@@ -245,7 +230,7 @@ def backupMultipleBucket(bucketList):
 			for bucket in bucketList: 
 				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
-				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed": #content type application/text error if removed
+				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed" and bucket.name[:27] != "nightly.ps.LiveTopoVersions" and bucket.name[:24] != "prod.ps.LiveTopoVersions": #content type application/text error if removed
 				#if True:
 					target.write('{"' + bucket.name + '": [')
 					writeBucket(bucket, target)
@@ -304,8 +289,7 @@ def restoreFromFileProtocol():
 				store_newEntry_time = store_newEntry_time + (e2-s2)
 			end = time.time()
 			print "Time to store keys is " + str(store_newEntry_time)
-			print "Time to write all keys is " + str(end - start)
-			print "Bucket done\n"
+			print "Time to restore all bucket is " + str(end - start)
 
 def createAccountBucketList():
 	"""
@@ -313,7 +297,7 @@ def createAccountBucketList():
 	@return: list of strings representing the buckets associated with the account (string passed from args.account)
 	"""	
 	bucketList = []
-	env = "dev" #change l8r
+	env = args.server
 	for types in typeList:
 		bucketList.append(env + ".ps." + types + "." + str(args.account))
 	return bucketList
