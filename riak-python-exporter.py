@@ -103,7 +103,7 @@ def writeBucket(bucket, target):
 	dataObj_time = 0
 	firstKey = True
 	for dataObj in dataObjs: #one for each key
-		keyCount = keyCount + 1
+		keyCount += 1
 		dataObjInd = dataObj.indexes
 
 		# writing the data
@@ -164,7 +164,7 @@ def writeBucketNode(bucket, client):
 	count = 0
 
 	for dataObj in dataObjs:
-		count = count + 1
+		count += 1
 		start = time.time()
 		dataObj = dataObj.data
 		if dDataObj:
@@ -239,7 +239,7 @@ def backupMultipleBucket(bucketList):
 		count = 1
 		for bucket in bucketList:
 			print "\n ++ " + bucket.name + " #" + str(count)
-			count = count + 1
+			count += 1
 			if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed":
 				writeBucketNode(bucket, localClient)
 	elif args.delete:
@@ -262,7 +262,7 @@ def restoreFromFileProtocol():
 	with open(args.restorefile, 'r') as backup:
 		count = 0
 		for line in backup:
-			count = count + 1
+			count += 1
 			print "Bucket #" + str(count)
 			start = time.time()
 			bucketDict = json.loads(line)
