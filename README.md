@@ -8,15 +8,15 @@ Ignore warning about OpenSSL (packaging issue with python riak client)
 Output backup file generated is >1.5 GB for staging server.
 
 **options:**
-	-h, --help					output usage information
-	-s, --server				required. specifies which riak server to backup from. options: local or staging	
-	-A, --All					backup all buckets in specified server
-	-a, --account [accountID]	backup all buckets associated with [accountID]
-	-b, --bucket [bucket]		backup all data in [bucket]
-	-t, --time [time]			restricts backup to everything after [time]
-	-f, --restorefile [file]	backups from particular file into a riak instance
-	-n, --restorenode			changes default of writing backupts to json file, to writing to another riak instance (default is local riak instance)
-	-d, --delete				if option is set with -A option, deletes every bucket (only use if sure you want to delete). -n and -d must not be set in same command
+	-h, --help					output usage information  
+	-s, --server				required. specifies which riak server to backup from. options: local or staging  
+	-A, --All					backup all buckets in specified server  
+	-a, --account [accountID]	backup all buckets associated with [accountID]  
+	-b, --bucket [bucket]		backup all data in [bucket]  
+	-t, --time [time]			restricts backup to everything after [time]  
+	-f, --restorefile [file]	backups from particular file into a riak instance  
+	-n, --restorenode			changes default of writing backupts to json file, to writing to another riak instance (default is local riak instance)  
+	-d, --delete				if option is set with -A option, deletes every bucket (only use if sure you want to delete). -n and -d must not be set in same command  
 
 **Example Use:**
 
