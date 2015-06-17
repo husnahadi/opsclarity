@@ -15,13 +15,15 @@ import sys
 start = time.time()
 parser = argparse.ArgumentParser()
 parser.add_argument("-A", "--All", action='store_true', help="backup the entire db")
-parser.add_argument("-a", "--account", type=int, help="backup a particular account")
+parser.add_argument("-a", "--account", help="backup a particular account")
 parser.add_argument("-b", "--bucketname", help="backup a particular bucket")
-parser.add_argument("-t", "--time", type=int, help="restricts backup to certain range")
+parser.add_argument("-t", "--time", type=int, help="restricts backup to certain number of days ago")
 parser.add_argument("-f", "--restorefile", help="restore to a node from flat file")
 parser.add_argument("-n", "--restorenode", action='store_true', help="restore to a node from node")
 parser.add_argument("-d", "--delete", action='store_true', help="deletes unnecessary buckets")
 parser.add_argument("-s", "--server", help="which server to back it up from")
+parser.add_argument("-T", "--topoversion", action = 'store_true', help="backups topoversion types")
+parser.add_argument("-E", "--events", action='store_true', help='backups larger buckets, TimelineEvents and ResourceVersions')
 args = parser.parse_args()
 myClient = []
 protocol = ""
@@ -33,22 +35,20 @@ print "Protocol type: " + protocol
 
 if args.server == "local":
 	myClient = riak.RiakClient(protocol=protocol)
-elif args.server == "staging":
-	myClient = riak.RiakClient(host='internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com', protocol=protocol)
-elif args.server == "prod":
-	myClient = riak.RiakClient(host='internal-prod-riak-840856407.us-west-1.elb.amazonaws.com', protocol = protocol)
-	print "connecting"
-elif args.server == "nightly":
-	myClient = riak.RiakClient(host='nightly-platform.prod.opsclarity.com', protocol = protocol)
+elif args.server in ["staging", "prod", "nightly"]:
+	hostDict = {"staging": "internal-staging-riak-private-1665852857.us-west-1.elb.amazonaws.com", "prod": "internal-prod-riak-840856407.us-west-1.elb.amazonaws.com", "nightly": "nightly-platform.prod.opsclarity.com"}
+	myClient = riak.RiakClient(host=hostDict[args.server], protocol=protocol)
 elif not args.server:
-	print "Error: required server name (using -s option)"
-	sys.exit(0)
+	if not args.restorefile and not args.restorenode:
+		print "Error: required server name (using -s option)"
+		sys.exit(0)
 else:
 	print "Error: incorrect server name"
 	sys.exit(0)
+#print myClient.get_buckets()
 localClient = riak.RiakClient(protocol="http")
-date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M')
-typeList = ['TimelineEvents', 'TopoVersions', 'RiakClient', 'AgentCache'] #'ResourceVersion'
+#date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M')
+date = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
 keyCount = 0
 
 def getAccountsBuckets():
@@ -58,27 +58,20 @@ def getAccountsBuckets():
 	must have mongoDB client running in background before program starts
 	@return: list of Riak Bucket Objects
 	"""
-	# UNCOMMENT WHEN TALKED TO NARA:
-	# # access mongodb to get list of accounts
-	# db = MongoClient().configdb_dev
-	# accountList = []
-	# for d in db.Accounts.find({},{"_id":True}):
-	# 	accountList.append(d["_id"])
+	# access mongodb to get list of accounts
+	db = MongoClient().configdb_dev
+	accountList = []
+	for d in db.Accounts.find({},{"_id":True}):
+		accountList.append(d["_id"])
 
-	# bucketList = []
-	# env = args.server #unless its local -> then its dev
-	# for account in accountList:
-	# 	for types in typeList:
-	# 		bucketname = env + ".ps." + types + "." + str(account)
-	# 		bucket = myClient.bucket(bucketname)
-	# 		bucketList.append(bucket)
-	# return bucketList
-
-	start = time.time()
-	buckets = myClient.get_buckets()
-	end = time.time()
-	print "time to retrieve list of buckets is " + str(end - start)
-	return buckets
+	bucketList = []
+	env = args.server
+	for account in accountList:
+		for types in typeList:
+			bucketname = env + ".ps." + types + "." + str(account)
+			bucket = myClient.bucket(bucketname)
+			bucketList.append(bucket)
+	return bucketList
 	
 def writeBucket(bucket, target):
 	"""
@@ -104,7 +97,7 @@ def writeBucket(bucket, target):
 	firstKey = True
 	for dataObj in dataObjs: #one for each key
 		keyCount += 1
-		dataObjInd = dataObj.indexes
+		data = dataObj.encoded_data
 
 		# writing the data
 		if not firstKey:
@@ -112,18 +105,14 @@ def writeBucket(bucket, target):
 		else:
 			firstKey = False
 
-		s3 = time.time()
-		x = dataObj.encoded_data
-		e3 = time.time()
-		dataObj_time = dataObj_time + (e3 - s3)
-
-		if x:
+		if data:
 			target.write('[{"key": "' + str(dataObj.key) + '"}, ')
-			target.write(x)
+			target.write(data)
 			target.write(' , { "indexes": [')
 			
 			# writing the data's indices
 			firstIdx = True
+			dataObjInd = dataObj.indexes
 			if dataObjInd:
 				for idx,val in dataObjInd:
 					if not firstIdx:
@@ -134,10 +123,7 @@ def writeBucket(bucket, target):
 			target.write("]} ]")
 
 	end = time.time()
-	print "Creating data object time is " + str(dataObj_time)
 	print "Backing up bucket total is " + str(end - start1)
-
-	#print "totalReadfromNetwork time is " + str(totalReadfromNetwork)	
 
 def writeBucketNode(bucket, client):
 	"""
@@ -153,7 +139,7 @@ def writeBucketNode(bucket, client):
 	keys = getKeys(bucket)
 	end = time.time()
 	print "Getting keys time for " + str(len(keys)) + " keys is " + str(end - start)
-	keyCount = keyCount + len(keys)
+	keyCount += len(keys)
 	start = time.time()
 	dataObjs = bucket.multiget(keys)
 	end = time.time()
@@ -194,7 +180,15 @@ def getKeys(bucket):
 	@return: list of relevant keys for the bucket, depending on if --time option is set
 	"""	
 	if args.time:
-		return bucket.get_index('timestamp_int', args.time, 99999999999999)
+		startTime = int(time.time() - args.time*24*60*60)
+		bucketTimeDict = {'TimeLineEvents':'eventtimestamp_int','ResourceVersions':'timestamp_int'}
+		bucketType = bucket.name.split('.')[2]
+		if bucketType == 'TimelineEvents' or bucketType == 'ResourceVersions':
+			return bucket.get_index(bucketTimeDict[bucketType], startTime, 99999999999999)
+		else:
+			print "Filtering by time for bucket " + str(bucket.name) + " not supported"
+			sys.exit(0)
+
 	else:
 		#myClient.get_keys(bucket)
 		return bucket.get_index('$key','0','Z')	#return result could be HUGE. stream it with multiple loops perhaps. doesn't work with my bucket test
@@ -224,14 +218,17 @@ def backupMultipleBucket(bucketList):
 	"""
 	print "all protocol"
 	if not args.restorenode and not args.delete:
-		filename = args.server + "-riak-backup-" + date + ".json"
+		if args.All:
+			filename = args.server + "-riak-backup-" + date + ".json"
+		elif args.account:
+			filename = "account-" + str(args.account) + "-riak-backup-" + date + ".json"
+		print filename
 		count = 1
 		with open(filename, 'w') as target:
 			for bucket in bucketList: 
 				print "\n ++ " + bucket.name + " #" + str(count)
 				count = count + 1
 				if bucket.name[:27] != "staging.ps.LiveTopoVersions" and bucket.name[:7] != "mohamed" and bucket.name[:27] != "nightly.ps.LiveTopoVersions" and bucket.name[:24] != "prod.ps.LiveTopoVersions": #content type application/text error if removed
-				#if True:
 					target.write('{"' + bucket.name + '": [')
 					writeBucket(bucket, target)
 					target.write("]}\n")
@@ -248,7 +245,7 @@ def backupMultipleBucket(bucketList):
 			print "Bucket to delete: " + bucket.name
 			keys = getKeys(bucket)
 			global keyCount 
-			keyCount = keyCount + len(keys)
+			keyCount += len(keys)
 			for key in keys:
 				bucket.delete(key)
 
@@ -258,23 +255,23 @@ def restoreFromFileProtocol():
 	protocol to restore data from a JSON file (string passed from args.restore) into a node(s)
 	"""
 	global keyCount 
-	print "restore protocol"
+	print "Restore Protocol"
 	with open(args.restorefile, 'r') as backup:
 		count = 0
 		for line in backup:
 			count += 1
 			print "Bucket #" + str(count)
+
 			start = time.time()
 			bucketDict = json.loads(line)
-
 			end = time.time()
 			print "Loading json time is " + str(end-start)
-			bucketname = bucketDict.keys()[0]
 
+			bucketname = bucketDict.keys()[0]
 			print "++ " + str(bucketname) + " #" + str(count)
 			newBucket = myClient.bucket(bucketname)			
 			print "# keys in " + newBucket.name + ": " + str(len(bucketDict[bucketname]))
-			keyCount = keyCount + len(bucketDict[bucketname])
+			keyCount += len(bucketDict[bucketname])
 			store_newEntry_time = 0
 			start = time.time()
 			for key, data,indexes in bucketDict[bucketname]:
@@ -283,6 +280,7 @@ def restoreFromFileProtocol():
 					idx = index.keys()[0].encode('ascii','ignore')
 					val = index[index.keys()[0]]
 					newEntry.add_index(idx,val)
+					
 				s2 = time.time()
 				newEntry.store(return_body=False)
 				e2 = time.time()
@@ -294,20 +292,40 @@ def restoreFromFileProtocol():
 def createAccountBucketList():
 	"""
 	used with the -account option
-	@return: list of strings representing the buckets associated with the account (string passed from args.account)
+	generates a list of Riak buckets associated with the account passed in from args.account
+	@return: list of Riak Bucket Objects
 	"""	
+	buckets = myClient.get_buckets()
 	bucketList = []
-	env = args.server
-	for types in typeList:
-		bucketList.append(env + ".ps." + types + "." + str(args.account))
+	if args.server == "local":
+		env = "dev"
+	else:
+		env = args.server
+
+	def appendBucket(bucketType):
+		bucketString = env + ".ps." + bucketType + "." + str(args.account)
+		bucket = myClient.bucket(bucketString)
+		if bucket in buckets:
+			bucketList.append(bucket)
+		else:
+			print "Error: Bucket " + bucketString + " cannot be found"
+			sys.exit(0)
+
+	if args.topoversion:
+		appendBucket("TopoVersions")		
+	if args.events:
+		appendBucket("ResourceVersions")
+		appendBucket("TimelineEvents")
 	return bucketList
 
 #parses arguments to follow code execution
 if args.bucketname:
 	backupSingleBucketProtocol()
 elif args.All:
-	backupMultipleBucket(getAccountsBuckets())
+	backupMultipleBucket(myClient.get_buckets())
 elif args.account:
+	if args.account == "opsify":
+		args.account = "52df1648dc797880d43ebfa5"
 	backupMultipleBucket(createAccountBucketList())
 elif args.restorefile:
 	restoreFromFileProtocol()
